@@ -203,6 +203,47 @@ class TestExperimentLogEndpoint(VisdomHTTPTestCase):
         resp = self.post_json("/experiments/log", {"eid": "main", "params": [1, 2, 3]})
         self.assertEqual(resp.code, 400)
 
+    def post_raw(self, body):
+        """POST ``body`` as it is, without a ``json.dumps`` in the way."""
+        return self.fetch(
+            "/experiments/log",
+            method="POST",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+
+    def test_malformed_json_is_400(self):
+        """A body that is not JSON is the caller's error, not a 500."""
+        self.assertEqual(self.post_raw("{not json").code, 400)
+
+    def test_non_object_body_is_400(self):
+        """A JSON list or scalar carries no arguments to read, so reject it.
+
+        Each of these used to raise ``AttributeError`` on ``args.get``.
+        """
+        for body in ("[]", "[1, 2]", "null", "1", "true", '"main"'):
+            self.assertEqual(self.post_raw(body).code, 400, msg=body)
+
+    def test_non_string_eid_is_400(self):
+        """``escape_eid`` calls string methods on the id; a number is not one."""
+        for eid in (5, True, [], ["main"], {}):
+            resp = self.post_json(
+                "/experiments/log", {"eid": eid, "params": {"lr": 0.1}}
+            )
+            self.assertEqual(resp.code, 400, msg=repr(eid))
+
+    def test_rejected_requests_record_nothing(self):
+        """A request refused for its shape must not leave an experiment behind."""
+        self.post_raw("[]")
+        self.post_json("/experiments/log", {"eid": 5, "params": {"lr": 0.1}})
+        self.assertIsNone(self.read_experiment("main"))
+        self.assertIsNone(self.read_experiment("5"))
+
+    def test_empty_body_is_read_as_an_empty_object(self):
+        """Same as ``{}``, which this endpoint already accepts; and as
+        ``/experiments/search`` reads a missing body."""
+        self.assertEqual(self.post_raw("").code, 200)
+
     def test_experiment_survives_full_env_save(self):
         """A window save must not clobber a previously logged experiment.
 
