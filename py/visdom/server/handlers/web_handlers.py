@@ -1665,6 +1665,10 @@ class ExperimentLogHandler(BaseHandler):
                 400, reason="unknown action {0!r}".format(action)
             )
 
+        # ``escape_eid`` calls string methods on the id, so a number or a list
+        # here was an AttributeError and a 500 rather than a bad request.
+        if args.get("eid") is not None and not isinstance(args["eid"], str):
+            raise tornado.web.HTTPError(400, reason="'eid' must be a string")
         eid = extract_eid(args)
 
         if action == "metrics":
@@ -1757,10 +1761,7 @@ class ExperimentLogHandler(BaseHandler):
         "Experiment logging is disabled while the server is in readonly mode"
     )
     async def post(self):
-        args = tornado.escape.json_decode(
-            tornado.escape.to_basestring(self.request.body)
-        )
-        await self.wrap_func(self, args)
+        await self.wrap_func(self, _decode_json_body(self.request.body))
 
 
 class ExperimentSearchHandler(BaseHandler):
